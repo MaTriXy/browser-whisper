@@ -393,8 +393,16 @@
         const stream = whisper.transcribe(file, {
           onProgress({ stage, progress }) {
             const pct = Math.round(progress * 100);
-            if (stage === 'decoding') {
-              statusLog.textContent = `[system] ${stage} audio chunks... ${pct}%`;
+            if (stage === 'loading') {
+              if (progress === 1) {
+                statusLog.textContent = `[system] WebGPU model cached and ready.`;
+              } else {
+                statusLog.textContent = `[system] Downloading WebGPU model... ${pct}% (this only happens on the first run)`;
+              }
+            } else if (stage === 'decoding') {
+              statusLog.textContent = `[system] Decoding audio chunks... ${pct}%`;
+            } else if (stage === 'transcribing') {
+              statusLog.textContent = `[system] Transcribing live audio...`;
             } else {
               statusLog.textContent = `[system] status: ${stage}`;
             }
