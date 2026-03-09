@@ -19,7 +19,9 @@
   ],
   "scripts": {
     "dev": "bun --bun vite",
+    "dev:site": "bun --bun vite -c vite.demo.config.ts",
     "build": "bun run typecheck && bun --bun vite build",
+    "build:site": "bun --bun vite build -c vite.demo.config.ts",
     "typecheck": "tsc --noEmit",
     "preview": "bun --bun vite preview",
     "test": "bun test"
