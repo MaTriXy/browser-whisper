@@ -107,71 +107,19 @@ _Note: You can override these options on a per-file basis by passing them as the
 
 ---
 
-## 🚢 Publishing to NPM
-
-When you are ready to publish your library for others to use:
-
-1.  **Update Version:** Ensure the `version` field in `package.json` is correct (e.g. `1.0.0`).
-2.  **Build:** Run the production build command:
-    ```bash
-    bun run build
-    ```
-    This generates the `dist/` folder containing the compiled `index.js`, worker chunks, and type definitions.
-3.  **Login to NPM:** If you haven't already, log into your NPM account:
-    ```bash
-    npm login
-    ```
-4.  **Publish:** Publish the package to the public NPM registry:
-    ```bash
-    npm publish --access public
-    ```
-    _(Note: `bun publish` works as well if you are using Bun's package manager)._
-
----
-
 ## Browser support
 
 | Browser | WebGPU path | WASM fallback |
 |---------|-------------|---------------|
 | Chrome  | 113+        | 94+           |
 | Firefox | 141+        | 130+          |
-| Safari  | 26+         | 16.4+         |
+| Safari  | 18+         | 16.4+         |
 
 > **Note:** Your server must send `Cross-Origin-Embedder-Policy: require-corp`
 > and `Cross-Origin-Opener-Policy: same-origin` headers for
 > `SharedArrayBuffer` to be available (required by transformers.js threads).
 
----
 
-## Development
-
-```bash
-bun install
-bun dev        # dev server with demo at http://localhost:5173
-bun run build  # type-check + Vite library build → dist/
-bun test       # unit tests
-```
-
----
-
-## Architecture
-
-```
-main thread
-  └─ Transcriber
-       └─ Bridge
-            ├─ DecoderWorker   (MediaBunny demux → WebCodecs decode → PCM chunks)
-            │       │  MessageChannel (zero-copy ArrayBuffer transfers)
-            └─ WhisperWorker   (transformers.js Whisper inference → segments)
-```
-
-1. **DecoderWorker** demuxes the file with MediaBunny, decodes with WebCodecs,
-   downmixes to mono, resamples to 16 kHz, and streams 30-second PCM chunks
-   directly to WhisperWorker via a `MessageChannel`.
-2. **WhisperWorker** runs the Whisper pipeline on each chunk and posts
-   `TranscriptSegment` objects back to the main thread.
-3. The `Bridge` wires them together and exposes events; `Transcriber` wraps
-   that in a clean async-iterable API.
 
 ---
 
