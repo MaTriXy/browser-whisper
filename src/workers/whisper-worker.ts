@@ -13,6 +13,8 @@ import { pipeline, env } from '@huggingface/transformers';
 import type {
     MainThreadMessage,
     PCMChunk,
+    WhisperMessage,
+    QuantizationType,
 } from '../types.js';
 import { ModelLoadError } from '../errors.js';
 
@@ -48,7 +50,7 @@ let processing = false;
 // ---------------------------------------------------------------------------
 
 self.onmessage = async (e: MessageEvent) => {
-    const msg = e.data as { type: string; port?: MessagePort; modelId?: string; language?: string };
+    const msg = e.data as WhisperMessage;
 
     if (msg.type === 'port') {
         // Receive the MessagePort connected to the decoder worker
@@ -61,7 +63,8 @@ self.onmessage = async (e: MessageEvent) => {
 
     if (msg.type === 'init') {
         language = msg.language;
-        const modelId = msg.modelId!;
+        const modelId = msg.modelId;
+        const quantization: QuantizationType = msg.quantization || 'hybrid';
 
         postMain({ type: 'progress', event: { stage: 'loading', progress: 0 } });
 
@@ -77,29 +80,63 @@ self.onmessage = async (e: MessageEvent) => {
                 }
                 currentModelId = modelId;
 
-                // Cast via unknown to avoid TS2590 (pipeline has many overloads → complex union)
-                asrPipeline = (await (pipeline as (...a: unknown[]) => Promise<unknown>)(
-                    'automatic-speech-recognition',
-                    modelId,
-                    {
-                        device: 'webgpu', // gracefully falls back to 'wasm' if WebGPU unavailable
-                        // Hybrid quantization: full precision encoder (sensitive to quantization)
-                        // + 4-bit quantized decoder (tolerates q4 with negligible accuracy loss).
-                        // Cuts model size by ~60% and halves memory usage.
-                        dtype: {
-                            encoder_model: 'fp32',
-                            decoder_model_merged: 'q4',
+                // transformers.js downloads multiple files concurrently. To prevent the loading bar
+                // from jumping wildly as different files report progress, we track them here.
+                const downloadCache = new Map<string, { loaded: number; total: number }>();
+
+                // Map the public QuantizationType to transformers.js dtypes
+                let dtype: Record<string, string> | string;
+                if (quantization === 'hybrid') {
+                    dtype = { encoder_model: 'fp32', decoder_model_merged: 'q4' };
+                } else {
+                    dtype = quantization;
+                }
+
+                const loadPipeline = async (device: 'webgpu' | 'wasm') => {
+                    return (await (pipeline as (...a: unknown[]) => Promise<unknown>)(
+                        'automatic-speech-recognition',
+                        modelId,
+                        {
+                            device,
+                            dtype,
+                            progress_callback: (progressInfo: any) => {
+                                // If status is not 'download', it's just initiating or ready, skip progress modification
+                                if (progressInfo.status !== 'download') return;
+
+                                if (progressInfo.file && progressInfo.total) {
+                                    downloadCache.set(progressInfo.file, {
+                                        loaded: progressInfo.loaded || 0,
+                                        total: progressInfo.total,
+                                    });
+                                }
+
+                                let totalLoaded = 0;
+                                let totalExpected = 0;
+                                for (const state of downloadCache.values()) {
+                                    totalLoaded += state.loaded;
+                                    totalExpected += state.total;
+                                }
+
+                                if (totalExpected > 0) {
+                                    const rawProgress = totalLoaded / totalExpected;
+                                    postMain({
+                                        type: 'progress',
+                                        // Cap at 0.99 until shader compilation completes
+                                        event: { stage: 'loading', progress: Math.min(rawProgress, 0.99) },
+                                    });
+                                }
+                            },
                         },
-                        progress_callback: (progressInfo: unknown) => {
-                            const info = progressInfo as { progress?: number };
-                            const progress = (info.progress ?? 0) / 100;
-                            postMain({
-                                type: 'progress',
-                                event: { stage: 'loading', progress: Math.min(progress, 0.99) },
-                            });
-                        },
-                    },
-                )) as ASRPipeline;
+                    )) as ASRPipeline;
+                };
+
+                try {
+                    asrPipeline = await loadPipeline('webgpu');
+                } catch (gpuErr) {
+                    const msg = gpuErr instanceof Error ? gpuErr.message : String(gpuErr);
+                    console.warn(`[browser-whisper] WebGPU initialization failed (${msg}). Falling back to WASM execution.`);
+                    asrPipeline = await loadPipeline('wasm');
+                }
 
 
                 // Compile WebGPU shaders by running a dummy inference
@@ -135,6 +172,8 @@ self.onmessage = async (e: MessageEvent) => {
 
 function enqueue(chunk: PCMChunk): void {
     queue.push(chunk);
+    // Notify decoder of our new queue depth for backpressure
+    port?.postMessage(queue.length);
     if (!processing) processNext();
 }
 
@@ -146,6 +185,8 @@ async function processNext(): Promise<void> {
 
     processing = true;
     const chunk = queue.shift()!;
+    // Notify decoder we pulled a chunk, freeing up space
+    port?.postMessage(queue.length);
 
     try {
         await transcribeChunk(chunk);

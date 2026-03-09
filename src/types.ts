@@ -16,6 +16,8 @@ export const MODEL_IDS: Record<WhisperModel, string> = {
     'whisper-large': 'onnx-community/whisper-large-v3-turbo',
 };
 
+export type QuantizationType = 'fp32' | 'fp16' | 'q8' | 'q4' | 'hybrid';
+
 // ---------------------------------------------------------------------------
 // Public API types
 // ---------------------------------------------------------------------------
@@ -54,6 +56,8 @@ export interface TranscribeProgress {
 export interface TranscribeOptions {
     /** Whisper model to use (default: 'whisper-base') */
     model?: WhisperModel;
+    /** Model precision format affecting speed vs accuracy (default: 'hybrid') */
+    quantization?: QuantizationType;
     /** BCP-47 language code, e.g. 'en' or 'fr' (default: auto-detect) */
     language?: string;
     /** Called for each segment as it is transcribed */
@@ -87,7 +91,7 @@ export type DecoderMessage =
 
 // — Messages sent TO the whisper worker (via self.postMessage) —
 export type WhisperMessage =
-    | { type: 'init'; modelId: string; language?: string }
+    | { type: 'init'; modelId: string; language?: string; quantization?: QuantizationType }
     | { type: 'port'; port: MessagePort };
 
 // — Messages sent FROM workers TO the main thread —

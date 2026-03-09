@@ -11,9 +11,13 @@ import type {
     TranscriptSegment,
     TranscribeProgress,
     WhisperModel,
+    PCMChunk,
+    QuantizationType,
 } from '../types.js';
 import { MODEL_IDS } from '../types.js';
 import { BrowserWhisperError } from '../errors.js';
+import { Chunker } from './chunker.js';
+import { downmixToMono, resampleTo16kHz } from './resampler.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,10 +66,12 @@ export class Bridge {
         };
 
         this.whisperWorker.onerror = (e) => {
+            console.error('[browser-whisper] Whisper worker thread crashed:', e);
             callbacks.onError(`Whisper worker: ${e.message ?? 'unknown error'}`);
         };
 
         this.decoderWorker.onerror = (e) => {
+            console.error('[browser-whisper] Decoder worker thread crashed:', e);
             callbacks.onError(`Decoder worker: ${e.message ?? 'unknown error'}`);
         };
     }
@@ -81,20 +87,25 @@ export class Bridge {
         file: File,
         model: WhisperModel = 'whisper-base',
         language?: string,
+        quantization?: QuantizationType,
     ): Promise<void> {
         const modelId = MODEL_IDS[model];
 
         // ── Create MessageChannel for direct decoder→whisper PCM transfer ──────
         const { port1, port2 } = new MessageChannel();
 
+        const hasWebCodecs = typeof window !== 'undefined' && 'AudioDecoder' in window;
+
         // Give port1 to the decoder (it will postMessage PCMChunks through it)
-        this.decoderWorker.postMessage({ type: 'port', port: port1 }, [port1]);
+        if (hasWebCodecs) {
+            this.decoderWorker.postMessage({ type: 'port', port: port1 }, [port1]);
+        }
 
         // Give port2 to whisper (it will receive PCMChunks through it)
         this.whisperWorker.postMessage({ type: 'port', port: port2 }, [port2]);
 
         // ── Start Whisper model loading first (runs concurrently with decode) ──
-        this.whisperWorker.postMessage({ type: 'init', modelId, language });
+        this.whisperWorker.postMessage({ type: 'init', modelId, language, quantization });
 
         // Wait for the model to finish loading before feeding chunks into it
         await this.waitForReady();
@@ -102,7 +113,12 @@ export class Bridge {
         if (this.terminated) return;
 
         // ── Start decoding — chunks will flow directly to the whisper worker ───
-        this.decoderWorker.postMessage({ type: 'init', file });
+        if (hasWebCodecs) {
+            this.decoderWorker.postMessage({ type: 'init', file });
+        } else {
+            console.warn('[browser-whisper] WebCodecs not supported. Falling back to AudioContext for decoding.');
+            this.decodeWithAudioContext(file, port1);
+        }
     }
 
     /** Terminate both workers and clean up resources */
@@ -115,6 +131,76 @@ export class Bridge {
     // ---------------------------------------------------------------------------
     // Private
     // ---------------------------------------------------------------------------
+
+    /** Fallback for older browsers (e.g. Safari < 16.4) that lack WebCodecs AudioDecoder */
+    private async decodeWithAudioContext(file: File, port: MessagePort): Promise<void> {
+        try {
+            this.callbacks.onProgress({ stage: 'decoding', progress: 0 });
+
+            // 1. Read file into memory
+            const arrayBuffer = await file.arrayBuffer();
+
+            // 2. Decode using Web Audio API (supported almost everywhere)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const audioCtx = new AudioContextClass();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+            this.callbacks.onProgress({ stage: 'decoding', progress: 0.5 }); // Halfway done (decoding finished)
+
+            // 3. Extract channels and downmix to mono
+            const numChannels = audioBuffer.numberOfChannels;
+            const channels: Float32Array[] = [];
+            for (let i = 0; i < numChannels; i++) {
+                channels.push(audioBuffer.getChannelData(i));
+            }
+            const mono = downmixToMono(channels);
+
+            // 4. Resample to exactly 16kHz
+            const resampled = resampleTo16kHz(mono, audioBuffer.sampleRate);
+
+            // Listen for backpressure queue depth updates from the whisper worker
+            let whisperQueueSize = 0;
+            let whisperQueueWaiter: (() => void) | null = null;
+            port.onmessage = (e: MessageEvent<number>) => {
+                whisperQueueSize = e.data;
+                if (whisperQueueSize < 3 && whisperQueueWaiter) {
+                    whisperQueueWaiter();
+                    whisperQueueWaiter = null;
+                }
+            };
+
+            // 5. Send into the existing chunking pipeline perfectly mimicking the web worker
+            const chunker = new Chunker((chunk: PCMChunk) => {
+                if (this.terminated) return; // Prevent memory leak / runaway process
+                port.postMessage(chunk, [chunk.samples.buffer]);
+            });
+
+            // Feed audio to the chunker slowly to respect backpressure (30s at a time)
+            const SAMPLES_PER_CHUNK = 16000 * 30;
+            for (let i = 0; i < resampled.length; i += SAMPLES_PER_CHUNK) {
+                if (this.terminated) break;
+
+                while (whisperQueueSize >= 3) {
+                    await new Promise<void>((resolve) => { whisperQueueWaiter = resolve; });
+                }
+
+                if (this.terminated) break;
+                const slice = resampled.subarray(i, i + SAMPLES_PER_CHUNK);
+                chunker.push(slice);
+            }
+
+            if (!this.terminated) {
+                chunker.flush();
+                this.callbacks.onProgress({ stage: 'decoding', progress: 1 });
+            }
+            await audioCtx.close();
+        } catch (err) {
+            console.error('[browser-whisper] AudioContext fallback failed:', err);
+            this.callbacks.onError(`Decoder fallback error: ${err instanceof Error ? err.message : String(err)}`);
+            this.terminate();
+        }
+    }
 
     private handleWhisperMessage(msg: MainThreadMessage): void {
         if (this.terminated) return;

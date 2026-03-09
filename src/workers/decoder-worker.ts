@@ -35,6 +35,9 @@ import type { PCMChunk, MainThreadMessage } from '../types.js';
 /** Port connected to the Whisper worker via MessageChannel */
 let port: MessagePort | null = null;
 
+let whisperQueueSize = 0;
+let whisperQueueWaiter: (() => void) | null = null;
+
 // ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
@@ -44,6 +47,16 @@ self.onmessage = async (e: MessageEvent) => {
 
     if (msg.type === 'port') {
         port = msg.port!;
+
+        // Listen for backpressure queue depth updates from the whisper worker
+        port.onmessage = (portEvent: MessageEvent<number>) => {
+            whisperQueueSize = portEvent.data;
+            if (whisperQueueSize < 3 && whisperQueueWaiter) {
+                whisperQueueWaiter();
+                whisperQueueWaiter = null;
+            }
+        };
+
         return;
     }
 
@@ -181,14 +194,18 @@ async function run(file: File): Promise<void> {
     const sink = new EncodedPacketSink(audioTrack);
 
     for await (const packet of sink.packets()) {
-        // Backpressure: wait for the decoder to drain before feeding more
-        while (decoder.decodeQueueSize > 10) {
+        // Backpressure: wait for the decoder to drain AND the whisper worker to catch up
+        while (decoder.decodeQueueSize > 10 || whisperQueueSize >= 3) {
             await new Promise<void>((resolve) => {
-                decoder.addEventListener(
-                    'dequeue',
-                    () => resolve(),
-                    { once: true },
-                );
+                if (decoder.decodeQueueSize > 10) {
+                    decoder.addEventListener(
+                        'dequeue',
+                        () => resolve(),
+                        { once: true },
+                    );
+                } else {
+                    whisperQueueWaiter = resolve;
+                }
             });
         }
 

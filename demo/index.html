@@ -301,6 +301,13 @@
             <option value="whisper-base" selected>Base (~55 MB)</option>
             <option value="whisper-small">Small (~175 MB)</option>
           </select>
+          <select id="quantSelect">
+            <option value="hybrid" selected>Hybrid (Fast/Precise)</option>
+            <option value="fp32">FP32 (Most Accurate)</option>
+            <option value="fp16">FP16 (Balanced)</option>
+            <option value="q8">Q8 (Fast)</option>
+            <option value="q4">Q4 (Smallest/Fastest)</option>
+          </select>
           <button id="transcribeBtn" disabled>Test Transcription</button>
         </div>
         <div class="status" id="statusLog">Ready for input. Select a file to begin.</div>
@@ -330,7 +337,7 @@
 
     const $ = id => document.getElementById(id);
     const fileInput = $('fileInput'), fileLabel = $('fileLabel'), fileName = $('fileName'),
-      modelSelect = $('modelSelect'), transcribeBtn = $('transcribeBtn'),
+      modelSelect = $('modelSelect'), quantSelect = $('quantSelect'), transcribeBtn = $('transcribeBtn'),
       statusLog = $('statusLog'), mediaContainer = $('mediaContainer'),
       transcriptBox = $('transcriptBox'), transcriptSection = $('transcriptSection'),
       jsonSection = $('jsonSection'), jsonBox = $('jsonBox'), copyBtn = $('copyBtn');
@@ -386,7 +393,8 @@
       });
 
       const model = modelSelect.value;
-      const whisper = new BrowserWhisper({ model });
+      const quantization = quantSelect.value;
+      const whisper = new BrowserWhisper({ model, quantization });
 
       let iterCount = 0;
 

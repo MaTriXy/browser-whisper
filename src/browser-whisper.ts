@@ -169,6 +169,7 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
                 this.wakeUp();
             },
             onError: (message: string) => {
+                console.error('[browser-whisper] Fatal pipeline error:', message);
                 this.error = new BrowserWhisperError(message);
                 this.wakeUp();
             },
@@ -179,8 +180,10 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
                 this.file,
                 options.model as WhisperModel | undefined ?? 'whisper-base',
                 options.language,
+                options.quantization,
             );
         } catch (err) {
+            console.error('[browser-whisper] Initialization error:', err);
             this.error = err instanceof Error ? err : new BrowserWhisperError(String(err));
             this.wakeUp();
         }
