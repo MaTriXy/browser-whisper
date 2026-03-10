@@ -5,6 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Demo | browser-whisper</title>
+  <link rel="icon" href="/8134.ico" type="image/png" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
@@ -23,16 +24,21 @@
       --iris: #c4a7e7;
     }
 
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       background: var(--base);
       color: var(--text);
       margin: 0;
       padding: 2rem;
-      padding-top: 10vh;
+      padding-top: 8vh;
       display: flex;
       justify-content: center;
       align-items: flex-start;
+      min-height: 100vh;
       -webkit-font-smoothing: antialiased;
     }
 
@@ -41,20 +47,22 @@
       max-width: 720px;
       display: flex;
       flex-direction: column;
-      gap: 2.5rem;
+      gap: 1.25rem;
     }
 
+    /* ── Header ─────────────────────────────────────────── */
     header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      margin-bottom: 0.25rem;
     }
 
     .title-row {
       display: flex;
       align-items: center;
-      gap: 1rem;
-      margin-bottom: 0.5rem;
+      gap: 0.75rem;
+      margin-bottom: 0.35rem;
     }
 
     h1 {
@@ -67,16 +75,17 @@
 
     .version {
       color: var(--gold);
-      font-size: 0.85rem;
+      font-size: 0.75rem;
       background: var(--surface);
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      border: 1px solid var(--overlay);
     }
 
     a.back {
       color: var(--pine);
       text-decoration: none;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       transition: color 0.15s;
     }
 
@@ -91,19 +100,86 @@
       color: var(--muted);
     }
 
+    /* ── Notice Banner ──────────────────────────────────── */
+    .notice {
+      background: rgba(246, 193, 119, 0.06);
+      border: 1px solid rgba(246, 193, 119, 0.15);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-size: 0.75rem;
+      color: var(--subtle);
+      line-height: 1.6;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      position: relative;
+      transition: opacity 0.3s, transform 0.3s;
+    }
+
+    .notice.hidden {
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
+      height: 0;
+      padding: 0;
+      margin: 0;
+      border: none;
+      overflow: hidden;
+    }
+
+    .notice-icon {
+      font-size: 1rem;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .notice-content {
+      flex: 1;
+    }
+
+    .notice strong {
+      color: var(--gold);
+    }
+
+    .notice code {
+      background: var(--overlay);
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      color: var(--foam);
+    }
+
+    .notice-dismiss {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0;
+      line-height: 1;
+      flex-shrink: 0;
+      transition: color 0.15s;
+    }
+
+    .notice-dismiss:hover {
+      color: var(--text);
+      background: none;
+    }
+
+    /* ── Card ────────────────────────────────────────────── */
     .card {
       background: var(--surface);
       border: 1px solid var(--overlay);
-      border-radius: 4px;
-      padding: 1.5rem;
+      border-radius: 6px;
+      padding: 1.25rem;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 0.75rem;
     }
 
     .controls {
       display: flex;
-      gap: 1rem;
+      gap: 0.75rem;
       align-items: center;
       flex-wrap: wrap;
     }
@@ -112,30 +188,36 @@
       background: var(--base);
       color: var(--text);
       border: 1px solid var(--overlay);
-      padding: 0.5rem 1rem;
+      padding: 0.45rem 0.75rem;
       border-radius: 4px;
       font-family: inherit;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       outline: none;
+      transition: border-color 0.15s;
     }
 
-    /* Custom File Input Styling */
+    select:focus {
+      border-color: var(--iris);
+    }
+
+    /* Custom File Input */
     input[type="file"] {
       display: none;
     }
 
     .file-input-label {
-      background: var(--surface);
-      color: var(--text);
+      background: var(--base);
+      color: var(--subtle);
       border: 1px dashed var(--muted);
-      padding: 0.5rem 1rem;
+      padding: 0.45rem 0.85rem;
       border-radius: 4px;
       font-family: inherit;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       cursor: pointer;
       transition: all 0.15s;
       display: inline-flex;
       align-items: center;
+      gap: 0.4rem;
     }
 
     .file-input-label:hover {
@@ -143,22 +225,27 @@
       color: var(--foam);
     }
 
-    .file-input-label::before {
-      content: "[ choose file ]";
-      margin-right: 0.5rem;
+    .file-input-label .file-icon {
       color: var(--pine);
+      font-size: 0.85rem;
     }
 
-    select:focus {
-      border-color: var(--iris);
+    .file-input-label.has-file {
+      border-color: var(--foam);
+      border-style: solid;
+      color: var(--text);
     }
 
     button {
       background: var(--pine);
       color: var(--base);
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
       border: none;
+      padding: 0.45rem 1rem;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.8rem;
       transition: all 0.15s;
     }
 
@@ -167,31 +254,46 @@
     }
 
     button:disabled {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
     }
 
+    /* ── Status Bar ──────────────────────────────────────── */
     .status {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--subtle);
-      padding: 0.5rem;
+      padding: 0.45rem 0.6rem;
       background: var(--base);
       border: 1px solid var(--overlay);
       border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
     }
 
     .status::before {
-      content: "> ";
+      content: "❯";
       color: var(--gold);
+      font-size: 0.7rem;
     }
 
+    /* ── Media Player ────────────────────────────────────── */
     .media-container {
-      display: none;
       width: 100%;
       border: 1px solid var(--overlay);
-      border-radius: 4px;
+      border-radius: 6px;
       overflow: hidden;
-      background: #000;
+      background: #0d0c14;
+      max-height: 0;
+      opacity: 0;
+      transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease;
+      margin: 0;
+    }
+
+    .media-container.visible {
+      max-height: 450px;
+      opacity: 1;
+      margin-top: 0.25rem;
     }
 
     video,
@@ -202,77 +304,176 @@
       max-height: 400px;
     }
 
-    .transcript {
-      max-height: 300px;
-      overflow-y: auto;
-      border: 1px solid var(--overlay);
+    /* ── Transcript ──────────────────────────────────────── */
+    .results-card {
       background: var(--surface);
-      padding: 1rem;
+      border: 1px solid var(--overlay);
       border-radius: 6px;
-      font-size: 0.9rem;
-      line-height: 1.6;
-      color: var(--text-muted);
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      transition: max-height 0.4s ease, opacity 0.3s ease;
+    }
+
+    .results-card.visible {
+      max-height: 2000px;
+      opacity: 1;
+    }
+
+    .results-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--overlay);
+    }
+
+    .results-tab {
+      flex: 1;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.6rem 1rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      border-bottom: 2px solid transparent;
+    }
+
+    .results-tab:hover {
+      color: var(--subtle);
+      background: none;
+    }
+
+    .results-tab.active {
+      color: var(--foam);
+      border-bottom-color: var(--foam);
+      background: none;
+    }
+
+    .tab-actions {
+      display: flex;
+      align-items: center;
+      padding-right: 0.75rem;
+    }
+
+    .copy-btn {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.7rem;
+      background: var(--base);
+      color: var(--subtle);
+      border: 1px solid var(--overlay);
+      border-radius: 3px;
+    }
+
+    .copy-btn:hover:not(:disabled) {
+      color: var(--text);
+      border-color: var(--subtle);
+      background: var(--base);
+    }
+
+    .tab-panel {
       display: none;
     }
 
+    .tab-panel.active {
+      display: block;
+    }
+
+    .transcript {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 0.75rem;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    .transcript::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .transcript::-webkit-scrollbar-thumb {
+      background: var(--overlay);
+      border-radius: 2px;
+    }
+
     .transcript-item {
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.25rem;
       cursor: pointer;
       transition: all 0.15s;
-      padding: 0.25rem 0.5rem;
+      padding: 0.3rem 0.5rem;
       border-radius: 4px;
+      color: var(--subtle);
     }
 
     .transcript-item:hover {
       color: var(--text);
-      background: rgba(255, 255, 255, 0.02);
+      background: rgba(255, 255, 255, 0.03);
     }
 
     .transcript-item span.time {
-      color: var(--accent);
-      font-family: ui-monospace, monospace;
-      font-size: 0.8rem;
+      color: var(--pine);
+      font-size: 0.75rem;
       margin-right: 0.5rem;
     }
 
     .transcript-item.active {
-      color: #fff;
-      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      background: rgba(156, 207, 216, 0.08);
+      border-left: 2px solid var(--foam);
     }
 
     .json-output {
-      max-height: 400px;
+      max-height: 350px;
       overflow-y: auto;
-      border: 1px solid var(--overlay);
-      background: #000;
-      padding: 1rem;
-      border-radius: 6px;
+      background: #0d0c14;
+      padding: 0.75rem;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.85rem;
-      color: #a1a1aa;
-      display: none;
+      font-size: 0.8rem;
+      color: var(--subtle);
       white-space: pre-wrap;
       margin: 0;
     }
 
-    .section-header {
-      font-size: 0.85rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 0.75rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .json-output::-webkit-scrollbar {
+      width: 4px;
     }
 
-    .copy-btn {
-      padding: 0.3rem 0.6rem;
-      font-size: 0.75rem;
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--overlay);
+    .json-output::-webkit-scrollbar-thumb {
+      background: var(--overlay);
+      border-radius: 2px;
+    }
+
+    /* ── Empty State ─────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .empty-state .icon {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      opacity: 0.5;
+    }
+
+    /* ── Responsive ──────────────────────────────────────── */
+    @media (max-width: 600px) {
+      body {
+        padding: 1rem;
+        padding-top: 4vh;
+      }
+
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .controls>* {
+        width: 100%;
+      }
     }
   </style>
 </head>
@@ -289,45 +490,61 @@
       </div>
     </header>
 
-    <main style="display: flex; flex-direction: column; gap: 1.5rem;">
+    <!-- Dismissable notice — tucks itself away once closed -->
+    <div class="notice" id="notice">
+      <span class="notice-icon">💡</span>
+      <div class="notice-content">
+        <strong>For best results, use Chromium browsers</strong> (Chrome, Edge, Brave, Arc).<br>
+        <strong>🐧 Linux:</strong> Launch with
+        <code>google-chrome --enable-unsafe-webgpu --enable-features=Vulkan</code>
+      </div>
+      <button class="notice-dismiss" id="dismissNotice" title="Dismiss">✕</button>
+    </div>
+
+    <main style="display: flex; flex-direction: column; gap: 1rem;">
+      <!-- Controls Card -->
       <div class="card">
         <div class="controls">
           <label class="file-input-label" id="fileLabel">
             <input type="file" id="fileInput" accept="audio/*,video/*" />
-            <span id="fileName">No file selected</span>
+            <span class="file-icon">📂</span>
+            <span id="fileName">Choose file</span>
           </label>
           <select id="modelSelect">
             <option value="whisper-tiny">Tiny (~30 MB)</option>
             <option value="whisper-base" selected>Base (~55 MB)</option>
             <option value="whisper-small">Small (~175 MB)</option>
           </select>
-          <select id="quantSelect">
-            <option value="hybrid" selected>Hybrid (Fast/Precise)</option>
-            <option value="fp32">FP32 (Most Accurate)</option>
-            <option value="fp16">FP16 (Balanced)</option>
-            <option value="q8">Q8 (Fast)</option>
-            <option value="q4">Q4 (Smallest/Fastest)</option>
-          </select>
-          <button id="transcribeBtn" disabled>Test Transcription</button>
+          <button id="transcribeBtn" disabled>Transcribe</button>
         </div>
-        <div class="status" id="statusLog">Ready for input. Select a file to begin.</div>
+        <div class="status" id="statusLog">Ready — select an audio or video file to begin.</div>
       </div>
 
-      <div class="media-container" id="mediaContainer">
-        <!-- Native audio/video player injected here -->
-      </div>
+      <!-- Media Player — slides open smoothly when file is transcribed -->
+      <div class="media-container" id="mediaContainer"></div>
 
-      <div id="transcriptSection" style="display:none">
-        <div class="section-header">Playback Sync</div>
-        <div class="transcript" id="transcriptBox"></div>
-      </div>
-
-      <div id="jsonSection" style="display:none">
-        <div class="section-header">
-          Raw JSON Output (Developer View)
-          <button class="copy-btn" id="copyBtn">copy json</button>
+      <!-- Results — tabbed Playback Sync / JSON view -->
+      <div class="results-card" id="resultsCard">
+        <div style="display: flex; align-items: center;">
+          <div class="results-tabs">
+            <button class="results-tab active" data-tab="sync">Playback Sync</button>
+            <button class="results-tab" data-tab="json">Raw JSON</button>
+          </div>
+          <div class="tab-actions">
+            <button class="copy-btn" id="copyBtn" title="Copy JSON to clipboard">copy</button>
+          </div>
         </div>
-        <pre class="json-output" id="jsonBox"></pre>
+        <div class="tab-panel active" data-panel="sync">
+          <div class="transcript" id="transcriptBox">
+            <div class="empty-state">
+              <div class="icon">🎙️</div>
+              Transcript segments will appear here as they are transcribed.
+            </div>
+          </div>
+        </div>
+        <div class="tab-panel" data-panel="json">
+          <pre class="json-output" id="jsonBox"></pre>
+        </div>
       </div>
     </main>
   </div>
@@ -337,10 +554,11 @@
 
     const $ = id => document.getElementById(id);
     const fileInput = $('fileInput'), fileLabel = $('fileLabel'), fileName = $('fileName'),
-      modelSelect = $('modelSelect'), quantSelect = $('quantSelect'), transcribeBtn = $('transcribeBtn'),
+      modelSelect = $('modelSelect'), transcribeBtn = $('transcribeBtn'),
       statusLog = $('statusLog'), mediaContainer = $('mediaContainer'),
-      transcriptBox = $('transcriptBox'), transcriptSection = $('transcriptSection'),
-      jsonSection = $('jsonSection'), jsonBox = $('jsonBox'), copyBtn = $('copyBtn');
+      transcriptBox = $('transcriptBox'), resultsCard = $('resultsCard'),
+      jsonBox = $('jsonBox'), copyBtn = $('copyBtn'), notice = $('notice'),
+      dismissNotice = $('dismissNotice');
 
     let file = null;
     let mediaEl = null;
@@ -350,39 +568,61 @@
     // format seconds to M:SS
     const fmt = s => { if (!isFinite(s)) return '0:00'; const m = Math.floor(s / 60); return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`; };
 
+    // ── Notice dismiss (remembers in sessionStorage) ──────────────────────
+    if (sessionStorage.getItem('notice-dismissed')) {
+      notice.classList.add('hidden');
+    }
+    dismissNotice.addEventListener('click', () => {
+      notice.classList.add('hidden');
+      sessionStorage.setItem('notice-dismissed', '1');
+    });
+
+    // ── Tab switching ─────────────────────────────────────────────────────
+    document.querySelectorAll('.results-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.results-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+      });
+    });
+
+    // ── File selection ────────────────────────────────────────────────────
     fileInput.addEventListener('change', () => {
       file = fileInput.files?.[0] || null;
       if (file) {
         fileName.textContent = file.name;
-        fileLabel.style.borderColor = 'var(--foam)';
+        fileLabel.classList.add('has-file');
         transcribeBtn.disabled = false;
       } else {
-        fileName.textContent = 'No file selected';
-        fileLabel.style.borderColor = 'var(--muted)';
+        fileName.textContent = 'Choose file';
+        fileLabel.classList.remove('has-file');
         transcribeBtn.disabled = true;
       }
     });
 
+    // ── Transcription ─────────────────────────────────────────────────────
     transcribeBtn.addEventListener('click', async () => {
       if (!file) return;
 
       transcribeBtn.disabled = true;
       transcriptBox.innerHTML = '';
       jsonBox.textContent = '';
-      transcriptSection.style.display = 'block';
-      jsonSection.style.display = 'none';
-      transcriptBox.style.display = 'block';
       segments = [];
       rawSegments = [];
 
-      // Set up native media player
+      // Show results card with empty state
+      resultsCard.classList.add('visible');
+
+      // Set up native media player with smooth reveal
       mediaContainer.innerHTML = '';
-      mediaContainer.style.display = 'block';
       const url = URL.createObjectURL(file);
       mediaEl = document.createElement(file.type.startsWith('video/') ? 'video' : 'audio');
       mediaEl.controls = true;
       mediaEl.src = url;
       mediaContainer.appendChild(mediaEl);
+      // Trigger smooth slide-open
+      requestAnimationFrame(() => mediaContainer.classList.add('visible'));
 
       // Sync visual highlights with native player timeupdate
       mediaEl.addEventListener('timeupdate', () => {
@@ -393,8 +633,7 @@
       });
 
       const model = modelSelect.value;
-      const quantization = quantSelect.value;
-      const whisper = new BrowserWhisper({ model, quantization });
+      const whisper = new BrowserWhisper({ model });
 
       let iterCount = 0;
 
@@ -404,16 +643,16 @@
             const pct = Math.round(progress * 100);
             if (stage === 'loading') {
               if (progress === 1) {
-                statusLog.textContent = `[system] WebGPU model cached and ready.`;
+                statusLog.textContent = 'WebGPU model cached and ready.';
               } else {
-                statusLog.textContent = `[system] Downloading WebGPU model... ${pct}% (this only happens on the first run)`;
+                statusLog.textContent = `Downloading model… ${pct}% (first run only)`;
               }
             } else if (stage === 'decoding') {
-              statusLog.textContent = `[system] Decoding audio chunks... ${pct}%`;
+              statusLog.textContent = `Decoding audio… ${pct}%`;
             } else if (stage === 'transcribing') {
-              statusLog.textContent = `[system] Transcribing live audio...`;
+              statusLog.textContent = 'Transcribing…';
             } else {
-              statusLog.textContent = `[system] status: ${stage}`;
+              statusLog.textContent = `${stage}`;
             }
           }
         });
@@ -422,6 +661,9 @@
           iterCount++;
           const cleanText = text.trim();
           rawSegments.push({ text: cleanText, start, end });
+
+          // Clear empty state on first segment
+          if (iterCount === 1) transcriptBox.innerHTML = '';
 
           const div = document.createElement('div');
           div.className = 'transcript-item';
@@ -438,23 +680,22 @@
           transcriptBox.scrollTop = transcriptBox.scrollHeight;
         }
 
-        statusLog.textContent = `[done] Completed transcription spanning ${iterCount} segments.`;
+        statusLog.textContent = `Done — ${iterCount} segments transcribed.`;
         jsonBox.textContent = JSON.stringify(rawSegments, null, 2);
-        jsonSection.style.display = 'block';
 
       } catch (err) {
-        statusLog.textContent = `[error] ${err.message}`;
+        statusLog.textContent = `Error: ${err.message}`;
       } finally {
         transcribeBtn.disabled = false;
       }
     });
 
-    // Copy button logic
+    // ── Copy JSON ─────────────────────────────────────────────────────────
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(jsonBox.textContent);
       const original = copyBtn.textContent;
       copyBtn.textContent = 'Copied!';
-      setTimeout(() => copyBtn.textContent = original, 2000);
+      setTimeout(() => copyBtn.textContent = original, 1500);
     });
   </script>
 </body>
