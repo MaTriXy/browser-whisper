@@ -9,8 +9,7 @@
  *  5. Posting TranscriptSegments back to the main thread
  */
 
-// @ts-ignore - TS doesn't natively support https imports, but Vite/Browser does
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4';
+import { pipeline, env } from '@huggingface/transformers';
 import type {
     MainThreadMessage,
     PCMChunk,
@@ -27,6 +26,11 @@ import { ModelLoadError } from '../errors.js';
 env.useBrowserCache = true;
 // Prevent the library from trying file:// lookups in browser context
 env.allowLocalModels = false;
+
+// CRITICAL: Prevent 60MB WASM files from being injected into the Vite build 
+// while keeping the JS logic running locally to avoid cross-origin Web Worker security errors.
+// @ts-expect-error - wasmPaths exists on env.backends.onnx.wasm
+env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4/dist/';
 
 // ---------------------------------------------------------------------------
 // Worker state
