@@ -9,7 +9,8 @@
  *  5. Posting TranscriptSegments back to the main thread
  */
 
-import { pipeline, env } from '@huggingface/transformers';
+// @ts-ignore - TS doesn't natively support https imports, but Vite/Browser does
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.4';
 import type {
     MainThreadMessage,
     PCMChunk,

@@ -16,7 +16,8 @@ import {
     ALL_FORMATS,
     BlobSource,
     EncodedPacketSink,
-} from 'mediabunny';
+// @ts-ignore - TS doesn't natively support https imports, but Vite/Browser does
+} from 'https://cdn.jsdelivr.net/npm/mediabunny@0.1.5';
 
 import { downmixToMono, resampleTo16kHz } from '../lib/resampler.js';
 import { Chunker } from '../lib/chunker.js';
