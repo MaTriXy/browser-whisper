@@ -4,6 +4,18 @@
  * Orchestrates the Decoder and Whisper workers via:
  *  - A MessageChannel for direct worker-to-worker PCMChunk flow
  *  - Routing messages from the Whisper worker back to the caller via callbacks
+ *
+ * ── Bundler compatibility ─────────────────────────────────────────────────────
+ * Currently Vite-only: workers are imported with Vite's `?worker&inline` syntax,
+ * which bundles each worker as a self-contained blob URL at build time.
+ *
+ * Next.js / Webpack support (future):
+ *   The `?worker&inline` imports below are the only Vite-specific lines.
+ *   To support Next.js, replace them with constructor injection — i.e. accept
+ *   `{ decoderWorker: Worker; whisperWorker: Worker }` from the caller, who
+ *   creates the workers using whatever bundler syntax their framework requires
+ *   (e.g. `new Worker(new URL('../workers/whisper-worker.ts', import.meta.url))`).
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import type {
@@ -19,6 +31,7 @@ import { BrowserWhisperError } from '../errors.js';
 import { Chunker } from './chunker.js';
 import { downmixToMono, resampleTo16kHz } from './resampler.js';
 
+// Vite-only: inline worker imports — see note at top of file for Next.js path
 import DecoderWorker from '../workers/decoder-worker.ts?worker&inline';
 import WhisperWorker from '../workers/whisper-worker.ts?worker&inline';
 
@@ -46,7 +59,6 @@ export class Bridge {
     constructor(callbacks: BridgeCallbacks) {
         this.callbacks = callbacks;
 
-        // Vite inline worker imports to avoid Next.js / Webpack resolution issues
         this.decoderWorker = new DecoderWorker();
         this.whisperWorker = new WhisperWorker();
 
@@ -55,8 +67,7 @@ export class Bridge {
             this.handleWhisperMessage(e.data);
         };
 
-        // ── Route messages from the Decoder worker ────────────────────────────
-        // Critical: without this, decoder errors and progress are silently dropped.
+        // Route messages from the Decoder worker (progress + errors)
         this.decoderWorker.onmessage = (e: MessageEvent<MainThreadMessage>) => {
             this.handleDecoderMessage(e.data);
         };
@@ -87,7 +98,7 @@ export class Bridge {
     ): Promise<void> {
         const modelId = MODEL_IDS[model];
 
-        // ── Create MessageChannel for direct decoder→whisper PCM transfer ──────
+        // Create MessageChannel for direct decoder→whisper PCM transfer (zero-copy)
         const { port1, port2 } = new MessageChannel();
 
         const hasWebCodecs = typeof window !== 'undefined' && 'AudioDecoder' in window;
@@ -100,7 +111,7 @@ export class Bridge {
         // Give port2 to whisper (it will receive PCMChunks through it)
         this.whisperWorker.postMessage({ type: 'port', port: port2 }, [port2]);
 
-        // ── Start Whisper model loading first (runs concurrently with decode) ──
+        // Start Whisper model loading (runs concurrently with decode)
         this.whisperWorker.postMessage({ type: 'init', modelId, language, quantization });
 
         // Wait for the model to finish loading before feeding chunks into it
@@ -108,7 +119,7 @@ export class Bridge {
 
         if (this.terminated) return;
 
-        // ── Start decoding — chunks will flow directly to the whisper worker ───
+        // Start decoding — chunks will flow directly to the whisper worker
         if (hasWebCodecs) {
             this.decoderWorker.postMessage({ type: 'init', file });
         } else {
@@ -133,26 +144,21 @@ export class Bridge {
         try {
             this.callbacks.onProgress({ stage: 'decoding', progress: 0 });
 
-            // 1. Read file into memory
             const arrayBuffer = await file.arrayBuffer();
 
-            // 2. Decode using Web Audio API (supported almost everywhere)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             const audioCtx = new AudioContextClass();
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-            this.callbacks.onProgress({ stage: 'decoding', progress: 0.5 }); // Halfway done (decoding finished)
+            this.callbacks.onProgress({ stage: 'decoding', progress: 0.5 });
 
-            // 3. Extract channels and downmix to mono
             const numChannels = audioBuffer.numberOfChannels;
             const channels: Float32Array[] = [];
             for (let i = 0; i < numChannels; i++) {
                 channels.push(audioBuffer.getChannelData(i));
             }
             const mono = downmixToMono(channels);
-
-            // 4. Resample to exactly 16kHz
             const resampled = resampleTo16kHz(mono, audioBuffer.sampleRate);
 
             // Listen for backpressure queue depth updates from the whisper worker
@@ -166,13 +172,11 @@ export class Bridge {
                 }
             };
 
-            // 5. Send into the existing chunking pipeline perfectly mimicking the web worker
             const chunker = new Chunker((chunk: PCMChunk) => {
-                if (this.terminated) return; // Prevent memory leak / runaway process
+                if (this.terminated) return;
                 port.postMessage(chunk, [chunk.samples.buffer]);
             });
 
-            // Feed audio to the chunker slowly to respect backpressure (30s at a time)
             const SAMPLES_PER_CHUNK = 16000 * 30;
             for (let i = 0; i < resampled.length; i += SAMPLES_PER_CHUNK) {
                 if (this.terminated) break;
@@ -224,24 +228,20 @@ export class Bridge {
         }
     }
 
-    /** Route messages from the decoder worker (progress + errors) */
     private handleDecoderMessage(msg: MainThreadMessage): void {
         if (this.terminated) return;
 
         switch (msg.type) {
             case 'progress':
-                // Forward decoding progress alongside whisper progress
                 this.callbacks.onProgress(msg.event);
                 break;
 
             case 'error':
-                // Decoder errors are fatal — surface them and stop
                 this.callbacks.onError(`Decoder: ${msg.message}`);
                 this.terminate();
                 break;
 
             default:
-                // ignore 'ready', 'done', 'segment' (not emitted by decoder)
                 break;
         }
     }
@@ -256,14 +256,13 @@ export class Bridge {
 
             this.whisperWorker.onmessage = (e: MessageEvent<MainThreadMessage>) => {
                 if (e.data.type === 'ready') {
-                    // Restore the main message handler and resolve
                     this.whisperWorker.onmessage = original;
                     resolve();
                 } else if (e.data.type === 'error') {
                     this.whisperWorker.onmessage = original;
                     reject(new BrowserWhisperError(e.data.message));
                 } else {
-                    // Forward progress events (model download progress) during loading
+                    // Forward progress events (model download) during loading
                     this.handleWhisperMessage(e.data);
                 }
             };

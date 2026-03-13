@@ -2,14 +2,9 @@ import { defineConfig } from 'vite'
 import { resolve } from 'path'
 
 export default defineConfig({
-  // CRITICAL: Disable ALL asset inlining to ensure the 60MB .wasm
-  // files are NEVER converted to base64 strings inside the bundle.
-  // We don't care about the extra files being generated in `/dist/assets/`
-  // because transformers.js is hardcoded to fetch them from jsdelivr CDN anyway.
   build: {
     assetsInlineLimit: 0,
     lib: {
-      // Main entry – workers are added via rollupOptions.input below
       entry: resolve(__dirname, 'src/index.ts'),
       formats: ['es'],
       fileName: 'index',
@@ -24,20 +19,22 @@ export default defineConfig({
           return 'assets/[name]-[hash][extname]';
         }
       },
-      // Externalize dependencies so they aren't bundled in the MAIN thread
+      // Keep heavy deps external — consumers' bundler resolves them from
+      // node_modules, letting it handle onnxruntime-web's internal dynamic
+      // imports (ort-webgpu.mjs etc.) correctly.
       external: ['@huggingface/transformers', 'mediabunny', 'onnxruntime-web'],
     },
   },
 
+  // Workers are ES modules (required for transferable streams etc.)
+  // `?worker&inline` bundles each worker as a self-contained blob URL —
+  // this is Vite-specific syntax and will not work with Next.js / Webpack.
+  // See src/lib/bridge.ts for the Next.js migration path (constructor injection).
   worker: {
     format: 'es',
-    // Prevent Vite's worker plugin from base64-inlining WASM assets
-    // that are imported by transformers.js / onnxruntime-web
     rollupOptions: {
-      output: {
-        inlineDynamicImports: true,
-      }
-    }
+      external: ['@huggingface/transformers', 'mediabunny', 'onnxruntime-web'],
+    },
   },
 
   resolve: {
