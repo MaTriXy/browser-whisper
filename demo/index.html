@@ -4,9 +4,57 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Demo | browser-whisper</title>
-  <link rel="icon" href="/8134.ico" type="image/png" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Live Demo — browser-whisper | Transcribe Audio in Your Browser</title>
+  <meta name="description" content="Try browser-whisper live: transcribe audio and video files directly in your browser using WebGPU Whisper. No uploads, no servers — everything runs locally." />
+  <meta name="author" content="Tanpreet Singh Jolly" />
+  <link rel="canonical" href="https://whisper.tanpreet.xyz/demo/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Live Demo — browser-whisper" />
+  <meta property="og:description" content="Transcribe audio and video files directly in your browser using WebGPU Whisper. No uploads, no servers." />
+  <meta property="og:url" content="https://whisper.tanpreet.xyz/demo/" />
+  <meta property="og:site_name" content="browser-whisper" />
+  <meta property="og:image" content="https://whisper.tanpreet.xyz/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="browser-whisper — Browser-native audio transcription via WebGPU" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Live Demo — browser-whisper" />
+  <meta name="twitter:description" content="Transcribe audio and video files directly in your browser. No uploads, no servers." />
+  <meta name="twitter:image" content="https://whisper.tanpreet.xyz/og-image.png" />
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "browser-whisper Demo",
+    "description": "Live demo for browser-whisper: transcribe audio and video files directly in your browser using WebGPU Whisper.",
+    "url": "https://whisper.tanpreet.xyz/demo/",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Web Browser",
+    "browserRequirements": "Requires a browser with WebGPU support (Chrome 113+, Edge 113+)",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "Tanpreet Singh Jolly",
+      "url": "https://github.com/tanpreetjolly"
+    }
+  }
+  </script>
+
+  <link rel="icon" href="/8134.ico" type="image/x-icon" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" /></noscript>
   <style>
     :root {
       --bg: #ffffff;
@@ -547,6 +595,12 @@
       opacity: 0.5;
     }
 
+    .main-content {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
     /* ── Responsive ──────────────────────────────────────── */
     @media (max-width: 600px) {
       body {
@@ -573,7 +627,7 @@
         <h1>browser-whisper</h1>
         <span class="version">demo</span>
       </div>
-      <a href="/" class="back">Back to pkg</a>
+      <a href="/" class="back" rel="author">Back to pkg</a>
     </header>
 
     <!-- Dismissable notice — tucks itself away once closed -->
@@ -587,9 +641,9 @@
       <button class="notice-dismiss" id="dismissNotice" title="Dismiss">✕</button>
     </div>
 
-    <main style="display: flex; flex-direction: column; gap: 2rem;">
+    <main class="main-content">
       <!-- Controls Card -->
-      <div class="card">
+      <section class="card" aria-label="Transcription controls">
         <div class="controls">
           <label class="file-input-label" id="fileLabel">
             <input type="file" id="fileInput" accept="audio/*,video/*" />
@@ -603,18 +657,18 @@
           </select>
           <button id="transcribeBtn" disabled>Transcribe</button>
         </div>
-        <div class="status" id="statusLog">Ready — select an audio or video file to begin.</div>
-      </div>
+        <div class="status" id="statusLog" role="status" aria-live="polite">Ready — select an audio or video file to begin.</div>
+      </section>
 
-      <!-- Media Player — slides open smoothly when file is transcribed -->
-      <div class="media-container" id="mediaContainer"></div>
+      <!-- Media Player -->
+      <div class="media-container" id="mediaContainer" aria-label="Media player"></div>
 
-      <!-- Results — tabbed Playback Sync / JSON view -->
-      <div class="results-card" id="resultsCard">
+      <!-- Results -->
+      <section class="results-card" id="resultsCard" aria-label="Transcription results">
         <div class="results-header">
-          <div class="results-tabs">
-            <button class="results-tab active" data-tab="sync">Playback Sync</button>
-            <button class="results-tab" data-tab="json">Raw JSON</button>
+          <div class="results-tabs" role="tablist" aria-label="Output view">
+            <button class="results-tab active" data-tab="sync" role="tab" aria-selected="true" aria-controls="panel-sync">Playback Sync</button>
+            <button class="results-tab" data-tab="json" role="tab" aria-selected="false" aria-controls="panel-json">Raw JSON</button>
           </div>
           <div class="tab-actions">
             <button class="copy-btn" id="copyBtn" title="Copy JSON to clipboard" aria-label="Copy JSON">
@@ -623,7 +677,7 @@
             </button>
           </div>
         </div>
-        <div class="tab-panel active" data-panel="sync">
+        <div class="tab-panel active" data-panel="sync" id="panel-sync" role="tabpanel">
           <div class="transcript" id="transcriptBox">
             <div class="empty-state">
               <div class="icon">🎙️</div>
@@ -631,10 +685,10 @@
             </div>
           </div>
         </div>
-        <div class="tab-panel" data-panel="json">
+        <div class="tab-panel" data-panel="json" id="panel-json" role="tabpanel">
           <pre class="json-output" id="jsonBox"></pre>
         </div>
-      </div>
+      </section>
     </main>
   </div>
 
@@ -657,21 +711,17 @@
     // format seconds to M:SS
     const fmt = s => { if (!isFinite(s)) return '0:00'; const m = Math.floor(s / 60); return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`; };
 
-    // ── Notice dismiss (remembers in sessionStorage) ──────────────────────
-    if (sessionStorage.getItem('notice-dismissed')) {
-      // notice.classList.add('hidden'); // Commented out for testing so you can see it
-    }
     dismissNotice.addEventListener('click', () => {
       notice.classList.add('hidden');
-      sessionStorage.setItem('notice-dismissed', '1');
     });
 
     // ── Tab switching ─────────────────────────────────────────────────────
     document.querySelectorAll('.results-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.results-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.results-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
         document.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
       });
     });
