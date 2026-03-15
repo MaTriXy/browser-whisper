@@ -200,21 +200,29 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
-    .notice-dismiss {
-      background: none;
-      border: none;
+    .notice-dismiss,
+    .notice-dismiss:hover,
+    .notice-dismiss:focus,
+    .notice-dismiss:active {
+      all: unset;
+      background: none !important;
+      background-color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
       color: var(--gray-400);
       cursor: pointer;
       font-size: 1rem;
-      padding: 0;
       line-height: 1;
       flex-shrink: 0;
-      transition: color 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
     }
 
     .notice-dismiss:hover {
-      color: var(--fg);
-      background: none;
+      color: var(--fg) !important;
     }
 
     /* ── Card ────────────────────────────────────────────── */
