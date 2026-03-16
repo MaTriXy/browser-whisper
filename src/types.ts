@@ -6,14 +6,20 @@ export type WhisperModel =
     | 'whisper-tiny'
     | 'whisper-base'
     | 'whisper-small'
-    | 'whisper-large';
+    | 'whisper-large'
+    | 'moonshine-tiny'
+    | 'moonshine-base'
+    | 'distil-whisper-small';
 
 /** Map a friendly model name to its Hugging Face Hub model ID */
 export const MODEL_IDS: Record<WhisperModel, string> = {
-    'whisper-tiny': 'onnx-community/whisper-tiny',
-    'whisper-base': 'onnx-community/whisper-base',
-    'whisper-small': 'onnx-community/whisper-small',
-    'whisper-large': 'onnx-community/whisper-large-v3-turbo',
+    'whisper-tiny':         'onnx-community/whisper-tiny',
+    'whisper-base':         'onnx-community/whisper-base',
+    'whisper-small':        'onnx-community/whisper-small',
+    'whisper-large':        'onnx-community/whisper-large-v3-turbo',
+    'moonshine-tiny':       'onnx-community/moonshine-tiny-ONNX',
+    'moonshine-base':       'onnx-community/moonshine-base-ONNX',
+    'distil-whisper-small': 'onnx-community/distil-small.en',
 };
 
 export type QuantizationType = 'fp32' | 'fp16' | 'q8' | 'q4' | 'hybrid';
@@ -60,7 +66,7 @@ export interface TranscribeProgress {
 
 /** Options passed to `Transcriber.transcribe()` */
 export interface TranscribeOptions {
-    /** Whisper model to use (default: 'whisper-base') */
+    /** Model to use for transcription (default: 'whisper-base') */
     model?: WhisperModel;
     /** Model precision format affecting speed vs accuracy (default: 'hybrid') */
     quantization?: QuantizationType;

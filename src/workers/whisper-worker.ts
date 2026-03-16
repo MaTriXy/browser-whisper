@@ -91,12 +91,13 @@ self.onmessage = async (e: MessageEvent) => {
                 // from jumping wildly as different files report progress, we track them here.
                 const downloadCache = new Map<string, { loaded: number; total: number }>();
 
-                // Map the public QuantizationType to transformers.js dtypes
+                // Map the public QuantizationType to transformers.js dtypes.
+                // 'hybrid' is Whisper-specific (encoder/decoder split); fall back to 'q4' for others.
                 let dtype: Record<string, string> | string;
-                if (quantization === 'hybrid') {
+                if (quantization === 'hybrid' && modelId.includes('whisper')) {
                     dtype = { encoder_model: 'fp32', decoder_model_merged: 'q4' };
                 } else {
-                    dtype = quantization;
+                    dtype = quantization === 'hybrid' ? 'q4' : quantization;
                 }
 
                 const loadPipeline = async (device: 'webgpu' | 'wasm') => {
@@ -214,14 +215,19 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
 
     postMain({ type: 'progress', event: { stage: 'transcribing', progress: 0 } });
 
+    // Moonshine doesn't support Whisper's timestamp tokens, chunking options, or language param
+    const isMoonshine = currentModelId?.includes('moonshine');
+
     const result = await asrPipeline(chunk.samples, {
         sampling_rate: 16_000,
-        // Segment-level timestamps (word-level requires models exported with
-        // output_attentions=True, which onnx-community models don't have)
-        return_timestamps: true,
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        ...(language ? { language } : {}),
+        ...(!isMoonshine && {
+            // Segment-level timestamps (word-level requires models exported with
+            // output_attentions=True, which onnx-community models don't have)
+            return_timestamps: true,
+            chunk_length_s: 30,
+            stride_length_s: 5,
+            ...(language ? { language } : {}),
+        }),
     });
 
     // The pipeline returns { text, chunks?: Array<{text, timestamp: [start, end]}> }
@@ -230,11 +236,16 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
         chunks?: Array<{ text: string; timestamp: [number | null, number | null] }>;
     };
 
-    const segments = (output.chunks ?? []).map((c) => ({
-        text: c.text,
-        start: (c.timestamp[0] ?? 0) + chunk.timestamp,
-        end: (c.timestamp[1] ?? 0) + chunk.timestamp,
-    }));
+    // Moonshine returns no chunks — emit a single segment spanning the whole chunk
+    const segments = output.chunks
+        ? output.chunks.map((c) => ({
+            text: c.text,
+            start: (c.timestamp[0] ?? 0) + chunk.timestamp,
+            end: (c.timestamp[1] ?? 0) + chunk.timestamp,
+        }))
+        : output.text.trim()
+            ? [{ text: output.text, start: chunk.timestamp, end: chunk.timestamp + chunk.samples.length / 16_000 }]
+            : [];
 
     for (const segment of segments) {
         postMain({ type: 'segment', segment });
