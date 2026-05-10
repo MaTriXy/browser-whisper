@@ -19,11 +19,16 @@
 import { Bridge } from './lib/bridge.js';
 import { BrowserWhisperError } from './errors.js';
 import type {
+    MainThreadMessage,
     TranscriptSegment,
     TranscribeOptions,
     TranscribeProgress,
     ASRModel,
+    DownloadModelOptions,
+    QuantizationType,
 } from './types.js';
+
+import WhisperWorker from './workers/whisper-worker.ts?worker&inline';
 
 // ---------------------------------------------------------------------------
 // BrowserWhisper (main entry point for consumers)
@@ -36,6 +41,7 @@ import type {
  */
 export class BrowserWhisper {
     private readonly defaultOptions: TranscribeOptions;
+    private whisperWorker: Worker | null = null;
 
     /**
      * @param options Global options to apply to all transcriptions instantiated by this class.
@@ -60,7 +66,89 @@ export class BrowserWhisper {
      */
     transcribe(file: File, runtimeOptions: TranscribeOptions = {}): TranscribeStream {
         const mergedOptions = { ...this.defaultOptions, ...runtimeOptions };
-        return new TranscribeStream(file, mergedOptions);
+        return new TranscribeStream(file, mergedOptions, this.getWhisperWorker());
+    }
+
+    /**
+     * Starts transcribing already-decoded mono 16-kHz PCM samples.
+     * Useful with browser VAD libraries that already emit Whisper-ready audio.
+     */
+    transcribePCM(samples: Float32Array, runtimeOptions: TranscribeOptions = {}): TranscribePCMStream {
+        const mergedOptions = { ...this.defaultOptions, ...runtimeOptions };
+        return new TranscribePCMStream(samples, mergedOptions, this.getWhisperWorker());
+    }
+
+    /**
+     * Explicitly downloads, stores, and verifies a model ahead of transcription.
+     *
+     * Model files are stored in OPFS via the worker's transformers.js custom
+     * cache. Existing Cache API entries are migrated into OPFS on first access.
+     */
+    async downloadModel(options: ASRModel | DownloadModelOptions = {}): Promise<void> {
+        const runtimeOptions = typeof options === 'string' ? { model: options } : options;
+        const mergedOptions: DownloadModelOptions = {
+            model: this.defaultOptions.model,
+            quantization: this.defaultOptions.quantization,
+            onProgress: this.defaultOptions.onProgress,
+            ...runtimeOptions,
+        };
+
+        await this.loadModel(
+            mergedOptions.model ?? 'whisper-tiny',
+            mergedOptions.quantization,
+            mergedOptions.onProgress,
+        );
+    }
+
+    /**
+     * Terminates the reusable Whisper worker owned by this instance.
+     * Call this when the transcriber will not be used again.
+     */
+    dispose(): void {
+        this.whisperWorker?.terminate();
+        this.whisperWorker = null;
+    }
+
+    private getWhisperWorker(): Worker {
+        if (!this.whisperWorker) {
+            this.whisperWorker = new WhisperWorker();
+        }
+
+        return this.whisperWorker;
+    }
+
+    private loadModel(
+        model: ASRModel,
+        quantization?: QuantizationType,
+        onProgress?: (event: TranscribeProgress) => void,
+    ): Promise<void> {
+        const worker = this.getWhisperWorker();
+
+        return new Promise((resolve, reject) => {
+            worker.onmessage = (event: MessageEvent<MainThreadMessage>) => {
+                const message = event.data;
+
+                if (message.type === 'ready') {
+                    resolve();
+                    return;
+                }
+
+                if (message.type === 'progress') {
+                    onProgress?.(message.event);
+                    return;
+                }
+
+                if (message.type === 'error') {
+                    reject(new BrowserWhisperError(message.message));
+                }
+            };
+
+            worker.onerror = (event) => {
+                reject(new BrowserWhisperError(event.message ?? 'Whisper worker failed.'));
+            };
+
+            worker.postMessage({ type: 'init', model, quantization });
+        });
     }
 }
 
@@ -80,6 +168,7 @@ export class BrowserWhisper {
 export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
     private readonly file: File;
     private readonly options: TranscribeOptions;
+    private readonly whisperWorker: Worker | undefined;
 
     // Internal async queue state for the generator
     private readonly queue: TranscriptSegment[] = [];
@@ -92,9 +181,10 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
     // The Bridge instance controlling the underlying Web Workers. Created lazily.
     private bridge: Bridge | null = null;
 
-    constructor(file: File, options: TranscribeOptions = {}) {
+    constructor(file: File, options: TranscribeOptions = {}, whisperWorker?: Worker) {
         this.file = file;
         this.options = options;
+        this.whisperWorker = whisperWorker;
     }
 
     // ---------------------------------------------------------------------------
@@ -155,25 +245,28 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
     private async startBridge(): Promise<void> {
         const { options } = this;
 
-        this.bridge = new Bridge({
-            onSegment: (segment: TranscriptSegment) => {
-                this.queue.push(segment);
-                options.onSegment?.(segment);
-                this.wakeUp();
+        this.bridge = new Bridge(
+            {
+                onSegment: (segment: TranscriptSegment) => {
+                    this.queue.push(segment);
+                    options.onSegment?.(segment);
+                    this.wakeUp();
+                },
+                onProgress: (event: TranscribeProgress) => {
+                    options.onProgress?.(event);
+                },
+                onDone: () => {
+                    this.doneFlag = true;
+                    this.wakeUp();
+                },
+                onError: (message: string) => {
+                    console.error('[browser-whisper] Fatal pipeline error:', message);
+                    this.error = new BrowserWhisperError(message);
+                    this.wakeUp();
+                },
             },
-            onProgress: (event: TranscribeProgress) => {
-                options.onProgress?.(event);
-            },
-            onDone: () => {
-                this.doneFlag = true;
-                this.wakeUp();
-            },
-            onError: (message: string) => {
-                console.error('[browser-whisper] Fatal pipeline error:', message);
-                this.error = new BrowserWhisperError(message);
-                this.wakeUp();
-            },
-        });
+            { whisperWorker: this.whisperWorker },
+        );
 
         try {
             await this.bridge.start(
@@ -190,6 +283,100 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
     }
 
     /** Resolve the pending Promise inside the async iterator */
+    private wakeUp(): void {
+        const resolver = this.notify;
+        this.notify = null;
+        resolver?.();
+    }
+}
+
+export class TranscribePCMStream implements AsyncIterable<TranscriptSegment> {
+    private readonly samples: Float32Array;
+    private readonly options: TranscribeOptions;
+    private readonly whisperWorker: Worker;
+
+    private readonly queue: TranscriptSegment[] = [];
+    private doneFlag = false;
+    private error: Error | undefined;
+    private notify: (() => void) | null = null;
+    private bridge: Bridge | null = null;
+
+    constructor(samples: Float32Array, options: TranscribeOptions, whisperWorker: Worker) {
+        this.samples = samples;
+        this.options = options;
+        this.whisperWorker = whisperWorker;
+    }
+
+    async *[Symbol.asyncIterator](): AsyncGenerator<TranscriptSegment> {
+        await this.startBridge();
+
+        while (true) {
+            if (this.queue.length > 0) {
+                yield this.queue.shift()!;
+            } else if (this.error) {
+                throw this.error;
+            } else if (this.doneFlag) {
+                return;
+            } else {
+                await new Promise<void>((resolve) => {
+                    this.notify = resolve;
+                });
+            }
+        }
+    }
+
+    async collect(): Promise<TranscriptSegment[]> {
+        const segments: TranscriptSegment[] = [];
+        for await (const segment of this) segments.push(segment);
+        return segments;
+    }
+
+    cancel(): void {
+        this.bridge?.terminate();
+        this.doneFlag = true;
+        this.wakeUp();
+    }
+
+    private async startBridge(): Promise<void> {
+        const { options } = this;
+
+        this.bridge = new Bridge(
+            {
+                onSegment: (segment: TranscriptSegment) => {
+                    this.queue.push(segment);
+                    options.onSegment?.(segment);
+                    this.wakeUp();
+                },
+                onProgress: (event: TranscribeProgress) => {
+                    options.onProgress?.(event);
+                },
+                onDone: () => {
+                    this.doneFlag = true;
+                    this.wakeUp();
+                },
+                onError: (message: string) => {
+                    console.error('[browser-whisper] Fatal PCM pipeline error:', message);
+                    this.error = new BrowserWhisperError(message);
+                    this.wakeUp();
+                },
+            },
+            { whisperWorker: this.whisperWorker },
+        );
+
+        try {
+            await this.bridge.startPCM(
+                this.samples,
+                options.model as ASRModel | undefined ?? 'whisper-tiny',
+                options.language,
+                options.quantization,
+            );
+        } catch (err) {
+            console.error('[browser-whisper] PCM initialization error:', err);
+            this.error = err instanceof Error ? err : new BrowserWhisperError(String(err));
+            this.wakeUp();
+        }
+    }
+
     private wakeUp(): void {
         const resolver = this.notify;
         this.notify = null;

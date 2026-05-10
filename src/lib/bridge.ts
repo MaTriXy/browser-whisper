@@ -46,6 +46,10 @@ export interface BridgeCallbacks {
     onError: (message: string) => void;
 }
 
+export interface BridgeOptions {
+    whisperWorker?: Worker;
+}
+
 // ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
@@ -54,13 +58,15 @@ export class Bridge {
     private readonly decoderWorker: Worker;
     private readonly whisperWorker: Worker;
     private readonly callbacks: BridgeCallbacks;
+    private readonly ownsWhisperWorker: boolean;
     private terminated = false;
 
-    constructor(callbacks: BridgeCallbacks) {
+    constructor(callbacks: BridgeCallbacks, options: BridgeOptions = {}) {
         this.callbacks = callbacks;
 
         this.decoderWorker = new DecoderWorker();
-        this.whisperWorker = new WhisperWorker();
+        this.whisperWorker = options.whisperWorker ?? new WhisperWorker();
+        this.ownsWhisperWorker = !options.whisperWorker;
 
         // Route messages from the Whisper worker
         this.whisperWorker.onmessage = (e: MessageEvent<MainThreadMessage>) => {
@@ -126,11 +132,41 @@ export class Bridge {
         }
     }
 
+    /**
+     * Start transcription from already-decoded mono 16-kHz PCM.
+     * This bypasses media decoding and avoids padding short utterances to 30s.
+     */
+    async startPCM(
+        samples: Float32Array,
+        model: ASRModel = 'whisper-tiny',
+        language?: string,
+        quantization?: QuantizationType,
+    ): Promise<void> {
+        const { port1, port2 } = new MessageChannel();
+
+        this.whisperWorker.postMessage({ type: 'port', port: port2 }, [port2]);
+        this.whisperWorker.postMessage({ type: 'init', model, language, quantization });
+
+        await this.waitForReady();
+
+        if (this.terminated) return;
+
+        const transferableSamples = samples.slice();
+
+        port1.postMessage({
+            samples: transferableSamples,
+            timestamp: 0,
+            final: true,
+        } satisfies PCMChunk, [transferableSamples.buffer]);
+    }
+
     /** Terminate both workers and clean up resources */
     terminate(): void {
         this.terminated = true;
         this.decoderWorker.terminate();
-        this.whisperWorker.terminate();
+        if (this.ownsWhisperWorker) {
+            this.whisperWorker.terminate();
+        }
     }
 
     // ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@
 - **Concurrent pipeline** — model loading and audio decoding run in parallel across two Web Workers
 - **Zero-copy PCM transfer** — audio frames move from the decoder worker to the inference worker via `MessageChannel` with `ArrayBuffer` transfer, no copying
 - **Streaming API** — results are yielded as an async iterator, segment by segment
-- **Model caching** — weights are cached in the browser Cache API after the first download
+- **Model caching** — weights are cached in OPFS after the first download, with automatic migration from the older Cache API cache
 - **TypeScript-first** — full type definitions included
 
 ---
@@ -117,6 +117,24 @@ const segments = await whisper.transcribe(file).collect()
 console.log(segments.map(s => s.text).join(' '))
 ```
 
+### Transcribe already-decoded PCM
+
+```ts
+// mono Float32Array at 16 kHz, e.g. from a browser VAD
+const segments = await whisper.transcribePCM(samples).collect()
+```
+
+### Download a model ahead of time
+
+```ts
+const whisper = new BrowserWhisper()
+
+await whisper.downloadModel('whisper-small')
+```
+
+Model files are stored in the browser's Origin Private File System (OPFS). If
+an older Cache API entry already exists, it is copied into OPFS on first access.
+
 ### With callbacks and options
 
 ```ts
@@ -160,6 +178,25 @@ Returns a `TranscribeStream`. Options passed here override constructor options f
 | `onSegment` | `(seg: TranscriptSegment) => void` | Called for each transcribed segment |
 | `onProgress` | `(evt: TranscribeProgress) => void` | Called with stage and 0–1 progress |
 
+### `whisper.downloadModel(modelOrOptions?)`
+
+Downloads, stores, and verifies a model without transcribing a file. This is
+useful when you want to let users choose when the large model download happens.
+
+```ts
+await whisper.downloadModel({
+  model: 'whisper-small',
+  quantization: 'hybrid',
+  onProgress: ({ progress }) => updateProgress(progress),
+})
+```
+
+You can also pass just the model name:
+
+```ts
+await whisper.downloadModel('whisper-small')
+```
+
 ### `TranscribeStream`
 
 Returned by `whisper.transcribe()`. Implements the async iterator protocol and has one helper:
@@ -167,6 +204,16 @@ Returned by `whisper.transcribe()`. Implements the async iterator protocol and h
 ```ts
 const segments = await stream.collect() // resolves with TranscriptSegment[]
 ```
+
+### `whisper.transcribePCM(samples, options?)`
+
+Transcribes mono 16-kHz `Float32Array` audio directly. This bypasses file
+decoding and avoids padding short utterances to a 30-second window.
+
+### `whisper.dispose()`
+
+Terminates the reusable Whisper worker owned by the `BrowserWhisper` instance.
+Call this when you are done with a long-lived transcriber.
 
 ### `WhisperModel`
 
@@ -179,7 +226,7 @@ Sizes below are for the default `'hybrid'` quantization (encoder fp32 + decoder 
 | `'whisper-small'` | ~510 MB | Better accuracy |
 | `'whisper-large'` | ~3 GB | `whisper-large-v3-turbo`; best accuracy |
 
-Other quantizations will differ. Models are downloaded from Hugging Face Hub (`onnx-community` namespace) and cached in the browser after the first run.
+Other quantizations will differ. Models are downloaded from Hugging Face Hub (`onnx-community` namespace) and cached in OPFS after the first run.
 
 ### `QuantizationType`
 
@@ -242,7 +289,7 @@ WebGPU and WebCodecs are the primary paths. Both have automatic fallbacks so the
 
 The library detects both features at runtime and falls back silently — no configuration needed.
 
-> **Network required on first run:** WASM binaries (~1 MB) are loaded from jsDelivr CDN, and model weights (64 MB – 3 GB depending on model) are streamed from Hugging Face Hub. Both are cached in the browser after the first run; subsequent calls work offline.
+> **Network required on first run:** WASM binaries (~1 MB) are loaded from jsDelivr CDN, and model weights (64 MB – 3 GB depending on model) are streamed from Hugging Face Hub. Model weights are cached in OPFS after the first run; subsequent calls work offline.
 
 ---
 

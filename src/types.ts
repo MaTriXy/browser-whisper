@@ -6,6 +6,15 @@ export type ASRModel =
     | 'whisper-tiny'
     | 'whisper-base'
     | 'whisper-small'
+    | 'whisper-tiny_timestamped'
+    | 'whisper-base_timestamped'
+    | 'whisper-small_timestamped'
+    | 'whisper-large-v3-turbo'
+    | 'whisper-large-v3-turbo_timestamped'
+    | 'whisper-large-v3'
+    | 'lite-whisper-large-v3-turbo-fast'
+    | 'lite-whisper-large-v3-turbo'
+    | 'lite-whisper-large-v3-turbo-acc'
     | 'moonshine-tiny'
     | 'moonshine-base'
     | 'distil-whisper-small';
@@ -24,12 +33,21 @@ export interface ModelConfig {
 const WHISPER_HYBRID = { encoder_model: 'fp32', decoder_model_merged: 'q4' };
 
 export const MODELS: Record<ASRModel, ModelConfig> = {
-    'whisper-tiny':         { hfId: 'onnx-community/whisper-tiny',              hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
-    'whisper-base':         { hfId: 'onnx-community/whisper-base',              hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
-    'whisper-small':        { hfId: 'onnx-community/whisper-small',             hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
-    'moonshine-tiny':       { hfId: 'onnx-community/moonshine-tiny-ONNX',      hybridDtype: 'q4',           supportsTimestamps: false, supportsLanguage: false },
-    'moonshine-base':       { hfId: 'onnx-community/moonshine-base-ONNX',      hybridDtype: 'q4',           supportsTimestamps: false, supportsLanguage: false },
-    'distil-whisper-small': { hfId: 'onnx-community/distil-small.en',          hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: false },
+    'whisper-tiny':                         { hfId: 'onnx-community/whisper-tiny',                              hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-base':                         { hfId: 'onnx-community/whisper-base',                              hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-small':                        { hfId: 'onnx-community/whisper-small',                             hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-tiny_timestamped':             { hfId: 'onnx-community/whisper-tiny_timestamped',                  hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-base_timestamped':             { hfId: 'onnx-community/whisper-base_timestamped',                  hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-small_timestamped':            { hfId: 'onnx-community/whisper-small_timestamped',                 hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-large-v3-turbo':               { hfId: 'onnx-community/whisper-large-v3-turbo',                    hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-large-v3-turbo_timestamped':   { hfId: 'onnx-community/whisper-large-v3-turbo_timestamped',        hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'whisper-large-v3':                     { hfId: 'onnx-community/whisper-large-v3-ONNX',                     hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'lite-whisper-large-v3-turbo-fast':     { hfId: 'onnx-community/lite-whisper-large-v3-turbo-fast-ONNX',     hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'lite-whisper-large-v3-turbo':          { hfId: 'onnx-community/lite-whisper-large-v3-turbo-ONNX',          hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'lite-whisper-large-v3-turbo-acc':      { hfId: 'onnx-community/lite-whisper-large-v3-turbo-acc-ONNX',      hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: true  },
+    'moonshine-tiny':                       { hfId: 'onnx-community/moonshine-tiny-ONNX',                       hybridDtype: 'q4',           supportsTimestamps: false, supportsLanguage: false },
+    'moonshine-base':                       { hfId: 'onnx-community/moonshine-base-ONNX',                       hybridDtype: 'q4',           supportsTimestamps: false, supportsLanguage: false },
+    'distil-whisper-small':                 { hfId: 'onnx-community/distil-small.en',                           hybridDtype: WHISPER_HYBRID, supportsTimestamps: true,  supportsLanguage: false },
 };
 
 /**
@@ -97,6 +115,16 @@ export interface TranscribeOptions {
     /** Called for each segment as it is transcribed */
     onSegment?: (segment: TranscriptSegment) => void;
     /** Called with progress updates during decoding and transcription */
+    onProgress?: (event: TranscribeProgress) => void;
+}
+
+/** Options passed to `BrowserWhisper.downloadModel()` */
+export interface DownloadModelOptions {
+    /** Model to download and load (default: 'whisper-tiny') */
+    model?: ASRModel;
+    /** Model precision format affecting speed vs accuracy (default: 'hybrid') */
+    quantization?: QuantizationType;
+    /** Called with progress updates during model download/load */
     onProgress?: (event: TranscribeProgress) => void;
 }
 
