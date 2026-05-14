@@ -126,6 +126,8 @@ export interface DownloadModelOptions {
     quantization?: QuantizationType;
     /** Called with progress updates during model download/load */
     onProgress?: (event: TranscribeProgress) => void;
+    /** Cancels an in-flight model download/load when aborted */
+    signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------

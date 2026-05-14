@@ -11,8 +11,17 @@ if (!modelSelect || !downloadButton || !transcribeButton || !repeatButton || !lo
     throw new Error('MP3 transcribe UI failed to initialize.');
 }
 
+let whisper = createWhisper();
+
 function selectedModel(): ASRModel {
     return modelSelect.value as ASRModel;
+}
+
+function createWhisper(): BrowserWhisper {
+    return new BrowserWhisper({
+        model: selectedModel(),
+        quantization: 'hybrid',
+    });
 }
 
 function appendLog(message: string): void {
@@ -45,7 +54,6 @@ async function createAudioFile(): Promise<File> {
 async function downloadModel(label: string): Promise<void> {
     setBusy(true);
     const startedAt = performance.now();
-    const whisper = new BrowserWhisper();
 
     try {
         appendLog(`${label}: starting ${selectedModel()}`);
@@ -73,7 +81,6 @@ repeatButton.addEventListener('click', () => {
 transcribeButton.addEventListener('click', async () => {
     setBusy(true);
     segmentsElement.textContent = '';
-    const whisper = new BrowserWhisper({ model: selectedModel(), quantization: 'hybrid' });
 
     try {
         appendLog(`transcribe: fetching audio.mp3`);
@@ -98,6 +105,16 @@ transcribeButton.addEventListener('click', async () => {
     } finally {
         setBusy(false);
     }
+});
+
+modelSelect.addEventListener('change', () => {
+    whisper.dispose();
+    whisper = createWhisper();
+    appendLog(`model: ${selectedModel()}`);
+});
+
+window.addEventListener('beforeunload', () => {
+    whisper.dispose();
 });
 
 appendLog('ready');

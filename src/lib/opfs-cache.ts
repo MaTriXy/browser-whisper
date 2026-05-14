@@ -8,7 +8,12 @@ interface StoredResponseMetadata {
 
 interface OPFSCacheOptions {
     legacyCacheName: string;
+    modelIds?: string[];
     rootName?: string;
+}
+
+interface DeleteModelCacheOptions extends OPFSCacheOptions {
+    modelId: string;
 }
 
 interface CacheLike {
@@ -49,6 +54,38 @@ export function createOPFSCache(options: OPFSCacheOptions): CacheLike {
     };
 }
 
+/** Remove all browser-whisper model files stored in OPFS and the legacy cache. */
+export async function clearOPFSCache(options: OPFSCacheOptions): Promise<void> {
+    const rootName = options.rootName ?? DEFAULT_ROOT_NAME;
+
+    if (hasOPFS()) {
+        const root = await navigator.storage.getDirectory();
+        await removeEntryIfExists(root, rootName, { recursive: true });
+    }
+
+    await deleteMatchingLegacyCacheEntries(options.legacyCacheName, options.modelIds ?? []);
+}
+
+/** Remove cached files for a single Hugging Face model ID. */
+export async function deleteModelFromOPFSCache(options: DeleteModelCacheOptions): Promise<void> {
+    const rootName = options.rootName ?? DEFAULT_ROOT_NAME;
+
+    if (hasOPFS()) {
+        const originRoot = await navigator.storage.getDirectory();
+        const root = await getExistingDirectory(originRoot, rootName);
+        if (root) {
+            const files = await getExistingDirectory(root, 'files');
+            const metadata = await getExistingDirectory(root, 'metadata');
+
+            if (files && metadata) {
+                await deleteMatchingOPFSEntries(metadata, files, options.modelId);
+            }
+        }
+    }
+
+    await deleteMatchingLegacyCacheEntries(options.legacyCacheName, options.modelId);
+}
+
 function normalizeRequest(request: RequestInfo | URL): Request {
     if (request instanceof Request) return request;
     return new Request(request);
@@ -63,6 +100,25 @@ async function readFromLegacyCache(
     const cache = await caches.open(cacheName);
     const response = await cache.match(request);
     return response ?? undefined;
+}
+
+async function deleteMatchingLegacyCacheEntries(
+    cacheName: string,
+    modelIds: string | string[],
+): Promise<void> {
+    if (!('caches' in globalThis)) return;
+
+    const models = Array.isArray(modelIds) ? modelIds : [modelIds];
+    if (models.length === 0) return;
+
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+
+    await Promise.all(
+        keys
+            .filter((request) => models.some((modelId) => isModelUrl(request.url, modelId)))
+            .map((request) => cache.delete(request)),
+    );
 }
 
 async function readFromOPFS(
@@ -151,6 +207,18 @@ async function getDirectory(
     return parent.getDirectoryHandle(name, { create: true });
 }
 
+async function getExistingDirectory(
+    parent: FileSystemDirectoryHandle,
+    name: string,
+): Promise<FileSystemDirectoryHandle | undefined> {
+    try {
+        return await parent.getDirectoryHandle(name);
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') return undefined;
+        throw error;
+    }
+}
+
 async function writeFile(
     directory: FileSystemDirectoryHandle,
     name: string,
@@ -160,6 +228,63 @@ async function writeFile(
     const writable = await handle.createWritable();
     await writable.write(data);
     await writable.close();
+}
+
+async function deleteMatchingOPFSEntries(
+    metadata: FileSystemDirectoryHandle,
+    files: FileSystemDirectoryHandle,
+    modelId: string,
+): Promise<void> {
+    for await (const [metadataName, handle] of directoryEntries(metadata)) {
+        if (handle.kind !== 'file' || !metadataName.endsWith('.json')) continue;
+
+        const metadataHandle = handle as FileSystemFileHandle;
+        const metadataFile = await metadataHandle.getFile();
+        const responseMetadata = JSON.parse(await metadataFile.text()) as StoredResponseMetadata;
+
+        if (!isModelUrl(responseMetadata.url, modelId)) continue;
+
+        await removeEntryIfExists(files, responseMetadata.fileName);
+        await removeEntryIfExists(metadata, metadataName);
+    }
+}
+
+async function removeEntryIfExists(
+    directory: FileSystemDirectoryHandle,
+    name: string,
+    options?: FileSystemRemoveOptions,
+): Promise<void> {
+    try {
+        await directory.removeEntry(name, options);
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') return;
+        throw error;
+    }
+}
+
+async function* directoryEntries(
+    directory: FileSystemDirectoryHandle,
+): AsyncIterableIterator<[string, FileSystemHandle]> {
+    const iterable = directory as FileSystemDirectoryHandle & {
+        entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+    };
+
+    yield* iterable.entries();
+}
+
+function isModelUrl(url: string, modelId: string): boolean {
+    const encodedModelId = modelId.split('/').map(encodeURIComponent).join('/');
+    const fullyEncodedModelId = encodeURIComponent(modelId);
+
+    return (
+        url.includes(`/${modelId}/`) ||
+        url.includes(`/${encodedModelId}/`) ||
+        url.includes(`/${fullyEncodedModelId}/`)
+    );
+}
+
+function hasOPFS(): boolean {
+    return typeof navigator !== 'undefined' && typeof navigator.storage?.getDirectory === 'function';
 }
 
 async function createCacheKey(value: string): Promise<string> {

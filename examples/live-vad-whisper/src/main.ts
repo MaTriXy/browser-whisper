@@ -75,9 +75,15 @@ clearButton.addEventListener('click', () => {
 
 modelSelect.addEventListener('change', () => {
     isPrepared = false;
+    whisper.dispose();
     whisper = createWhisper();
     setStatus('idle');
     log(`model: ${selectedModel()}`);
+});
+
+window.addEventListener('beforeunload', () => {
+    micVAD?.destroy?.();
+    whisper.dispose();
 });
 
 setStatus('idle');

@@ -27,8 +27,15 @@ import type {
     DownloadModelOptions,
     QuantizationType,
 } from './types.js';
+import { MODELS } from './types.js';
+import {
+    clearOPFSCache,
+    deleteModelFromOPFSCache,
+} from './lib/opfs-cache.js';
 
 import WhisperWorker from './workers/whisper-worker.ts?worker&inline';
+
+const LEGACY_CACHE_NAME = 'transformers-cache';
 
 // ---------------------------------------------------------------------------
 // BrowserWhisper (main entry point for consumers)
@@ -97,7 +104,24 @@ export class BrowserWhisper {
             mergedOptions.model ?? 'whisper-tiny',
             mergedOptions.quantization,
             mergedOptions.onProgress,
+            mergedOptions.signal,
         );
+    }
+
+    /** Deletes all browser-whisper model files from OPFS and the legacy browser cache. */
+    static async clearCache(): Promise<void> {
+        await clearOPFSCache({
+            legacyCacheName: LEGACY_CACHE_NAME,
+            modelIds: Object.values(MODELS).map((model) => model.hfId),
+        });
+    }
+
+    /** Deletes cached files for one model from OPFS and the legacy browser cache. */
+    static async deleteModel(model: ASRModel): Promise<void> {
+        await deleteModelFromOPFSCache({
+            legacyCacheName: LEGACY_CACHE_NAME,
+            modelId: MODELS[model].hfId,
+        });
     }
 
     /**
@@ -121,14 +145,41 @@ export class BrowserWhisper {
         model: ASRModel,
         quantization?: QuantizationType,
         onProgress?: (event: TranscribeProgress) => void,
+        signal?: AbortSignal,
     ): Promise<void> {
+        if (signal?.aborted) {
+            return Promise.reject(createAbortError(signal.reason));
+        }
+
         const worker = this.getWhisperWorker();
 
         return new Promise((resolve, reject) => {
+            let settled = false;
+
+            const cleanup = () => {
+                settled = true;
+                signal?.removeEventListener('abort', abort);
+            };
+
+            const abort = () => {
+                if (settled) return;
+                cleanup();
+                // transformers.js 3.8.x does not expose an AbortSignal for pipeline()
+                // model fetches, so terminating the worker is the cancellation boundary.
+                // Source: https://huggingface.co/docs/transformers.js/en/api/utils/hub#utilshubpretrainedoptions--object
+                this.dispose();
+                reject(createAbortError(signal?.reason));
+            };
+
+            signal?.addEventListener('abort', abort, { once: true });
+
             worker.onmessage = (event: MessageEvent<MainThreadMessage>) => {
+                if (settled) return;
+
                 const message = event.data;
 
                 if (message.type === 'ready') {
+                    cleanup();
                     resolve();
                     return;
                 }
@@ -139,17 +190,35 @@ export class BrowserWhisper {
                 }
 
                 if (message.type === 'error') {
+                    cleanup();
                     reject(new BrowserWhisperError(message.message));
                 }
             };
 
             worker.onerror = (event) => {
+                if (settled) return;
+                cleanup();
                 reject(new BrowserWhisperError(event.message ?? 'Whisper worker failed.'));
             };
 
             worker.postMessage({ type: 'init', model, quantization });
         });
     }
+}
+
+function createAbortError(reason?: unknown): Error {
+    if (reason instanceof Error) return reason;
+
+    if (typeof DOMException !== 'undefined') {
+        return new DOMException(
+            typeof reason === 'string' ? reason : 'Model download aborted.',
+            'AbortError',
+        );
+    }
+
+    const error = new Error(typeof reason === 'string' ? reason : 'Model download aborted.');
+    error.name = 'AbortError';
+    return error;
 }
 
 // ---------------------------------------------------------------------------

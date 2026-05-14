@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { createOPFSCache } from '../lib/opfs-cache.js';
+import {
+    clearOPFSCache,
+    createOPFSCache,
+    deleteModelFromOPFSCache,
+} from '../lib/opfs-cache.js';
 
 class FakeFile {
     constructor(private readonly bytes: Uint8Array) { }
@@ -14,6 +18,8 @@ class FakeFile {
 }
 
 class FakeFileHandle {
+    readonly kind = 'file';
+
     constructor(
         private readonly name: string,
         private readonly files: Map<string, Uint8Array>,
@@ -57,6 +63,8 @@ class FakeWritable {
 }
 
 class FakeDirectoryHandle {
+    readonly kind = 'directory';
+
     private readonly directories = new Map<string, FakeDirectoryHandle>();
     private readonly files = new Map<string, Uint8Array>();
 
@@ -87,6 +95,34 @@ class FakeDirectoryHandle {
 
         return new FakeFileHandle(name, this.files);
     }
+
+    async removeEntry(
+        name: string,
+        options: { recursive?: boolean } = {},
+    ): Promise<void> {
+        if (this.files.delete(name)) return;
+
+        const directory = this.directories.get(name);
+        if (!directory) {
+            throw new DOMException(`Missing entry: ${name}`, 'NotFoundError');
+        }
+
+        if (!options.recursive && (directory.files.size > 0 || directory.directories.size > 0)) {
+            throw new DOMException(`Directory is not empty: ${name}`, 'InvalidModificationError');
+        }
+
+        this.directories.delete(name);
+    }
+
+    async *entries(): AsyncIterableIterator<[string, FakeDirectoryHandle | FakeFileHandle]> {
+        for (const [name, directory] of this.directories) {
+            yield [name, directory];
+        }
+
+        for (const name of this.files.keys()) {
+            yield [name, new FakeFileHandle(name, this.files)];
+        }
+    }
 }
 
 class FakeBrowserCache {
@@ -94,6 +130,14 @@ class FakeBrowserCache {
 
     async match(request: Request): Promise<Response | undefined> {
         return this.entries.get(request.url)?.clone();
+    }
+
+    async keys(): Promise<Request[]> {
+        return [...this.entries.keys()].map((url) => new Request(url));
+    }
+
+    async delete(request: Request): Promise<boolean> {
+        return this.entries.delete(request.url);
     }
 }
 
@@ -145,6 +189,50 @@ describe('createOPFSCache', () => {
         const response = await cache.match(new Request('https://huggingface.co/model/missing.json'));
 
         expect(response).toBeUndefined();
+    });
+
+    it('deletes cached OPFS and legacy entries for one model', async () => {
+        installFakeOPFS();
+        const legacyCache = installFakeLegacyCache();
+        const cache = createOPFSCache({ legacyCacheName: 'transformers-cache' });
+        const tinyRequest = new Request('https://huggingface.co/onnx-community/whisper-tiny/resolve/main/config.json');
+        const baseRequest = new Request('https://huggingface.co/onnx-community/whisper-base/resolve/main/config.json');
+
+        await cache.put(tinyRequest, new Response('tiny-data'));
+        await cache.put(baseRequest, new Response('base-data'));
+        legacyCache.entries.set(tinyRequest.url, new Response('legacy-tiny-data'));
+        legacyCache.entries.set(baseRequest.url, new Response('legacy-base-data'));
+
+        await deleteModelFromOPFSCache({
+            legacyCacheName: 'transformers-cache',
+            modelId: 'onnx-community/whisper-tiny',
+        });
+
+        expect(await cache.match(tinyRequest)).toBeUndefined();
+        expect(await (await cache.match(baseRequest))!.text()).toBe('base-data');
+        expect(legacyCache.entries.has(tinyRequest.url)).toBe(false);
+        expect(legacyCache.entries.has(baseRequest.url)).toBe(true);
+    });
+
+    it('clears OPFS and the legacy cache', async () => {
+        installFakeOPFS();
+        const legacyCache = installFakeLegacyCache();
+        const cache = createOPFSCache({ legacyCacheName: 'transformers-cache' });
+        const request = new Request('https://huggingface.co/onnx-community/whisper-tiny/resolve/main/config.json');
+        const otherRequest = new Request('https://huggingface.co/other/model/resolve/main/config.json');
+
+        await cache.put(request, new Response('opfs-data'));
+        legacyCache.entries.set(request.url, new Response('legacy-data'));
+        legacyCache.entries.set(otherRequest.url, new Response('unrelated-data'));
+
+        await clearOPFSCache({
+            legacyCacheName: 'transformers-cache',
+            modelIds: ['onnx-community/whisper-tiny'],
+        });
+
+        expect(await cache.match(request)).toBeUndefined();
+        expect(legacyCache.entries.has(request.url)).toBe(false);
+        expect(legacyCache.entries.has(otherRequest.url)).toBe(true);
     });
 });
 

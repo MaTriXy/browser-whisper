@@ -197,6 +197,43 @@ You can also pass just the model name:
 await whisper.downloadModel('whisper-small')
 ```
 
+Downloads can be cancelled with an `AbortSignal`:
+
+```ts
+const controller = new AbortController()
+
+const download = whisper.downloadModel({
+  model: 'whisper-small',
+  signal: controller.signal,
+})
+
+controller.abort()
+
+try {
+  await download
+} catch (error) {
+  console.log(error.name) // 'AbortError'
+}
+```
+
+### `BrowserWhisper.clearCache()`
+
+Deletes all browser-whisper model files from OPFS and the legacy transformers.js
+browser cache.
+
+```ts
+await BrowserWhisper.clearCache()
+```
+
+### `BrowserWhisper.deleteModel(model)`
+
+Deletes cached files for one model from OPFS and the legacy transformers.js
+browser cache.
+
+```ts
+await BrowserWhisper.deleteModel('whisper-tiny')
+```
+
 ### `TranscribeStream`
 
 Returned by `whisper.transcribe()`. Implements the async iterator protocol and has one helper:
