@@ -1,7 +1,7 @@
 // Public API surface for browser-whisper
 
 // ── Main export ──────────────────────────────────────────────────────────────
-export { BrowserWhisper, TranscribeStream } from './browser-whisper.js';
+export { BrowserWhisper, TranscribeStream, TranscribePCMStream } from './browser-whisper.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export type {
@@ -11,6 +11,7 @@ export type {
     TranscriptSegment,
     TranscribeOptions,
     TranscribeProgress,
+    DownloadModelOptions,
 } from './types.js';
 export { MODELS } from './types.js';
 

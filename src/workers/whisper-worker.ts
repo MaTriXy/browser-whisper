@@ -19,13 +19,19 @@ import type {
 } from '../types.js';
 import { MODELS } from '../types.js';
 import { ModelLoadError } from '../errors.js';
+import { createOPFSCache } from '../lib/opfs-cache.js';
 
 // ---------------------------------------------------------------------------
 // transformers.js environment setup
 // ---------------------------------------------------------------------------
 
-// Cache models in the browser Cache API so second load is instant
-env.useBrowserCache = true;
+// Cache model files in OPFS. The custom cache checks OPFS first, migrates
+// entries from the old transformers.js Cache API cache on first access, and
+// stores new downloads in OPFS.
+env.useBrowserCache = false;
+env.useCustomCache = true;
+// @ts-expect-error - customCache is part of transformers.js runtime env
+env.customCache = createOPFSCache({ legacyCacheName: env.cacheKey ?? 'transformers-cache' });
 // Prevent the library from trying file:// lookups in browser context
 env.allowLocalModels = false;
 
@@ -46,6 +52,7 @@ type ASRPipeline = (input: Float32Array, opts: Record<string, unknown>) => Promi
 
 let asrPipeline: ASRPipeline | null = null;
 let currentModel: ASRModel | null = null;
+let currentQuantization: QuantizationType | null = null;
 
 let port: MessagePort | null = null;
 let language: string | undefined;
@@ -79,7 +86,11 @@ self.onmessage = async (e: MessageEvent) => {
         postMain({ type: 'progress', event: { stage: 'loading', progress: 0 } });
 
         try {
-            if (asrPipeline === null || currentModel !== model) {
+            if (
+                asrPipeline === null ||
+                currentModel !== model ||
+                currentQuantization !== quantization
+            ) {
                 if (asrPipeline) {
                     try {
                         // Attempt to free GPU memory of previous model
@@ -89,6 +100,7 @@ self.onmessage = async (e: MessageEvent) => {
                     }
                 }
                 currentModel = model;
+                currentQuantization = quantization;
 
                 // transformers.js downloads multiple files concurrently. To prevent the loading bar
                 // from jumping wildly as different files report progress, we track them here.
@@ -169,6 +181,7 @@ self.onmessage = async (e: MessageEvent) => {
             postMain({ type: 'ready' });
         } catch (err) {
             currentModel = null;
+            currentQuantization = null;
             asrPipeline = null;
             const loadErr = new ModelLoadError(config.hfId, err);
             postMain({ type: 'error', message: loadErr.message });
